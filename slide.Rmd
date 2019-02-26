@@ -1,0 +1,372 @@
+---
+title: "Data Analysis with R"
+author: ''
+date: '2019-02-26'
+output:
+  beamer_presentation:
+    includes:
+      in_header: header_pagenum.tex
+subtitle: Webscraping and parsing data in R
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning=FALSE,message=FALSE)
+```
+
+
+## Requirement
+
+* Intermediate knowledge in R,
+* Need to install both R and the RStudio interface,
+* Need to install the `tidyverse`,`rvest`
+
+\scriptsize
+
+```{r}
+# install.packages(c("tidyverse","rvest","ggrepel")
+library(tidyverse)
+library(rvest)
+library(ggrepel)
+```
+
+\normalsize
+
+
+## What we want
+
+\begin{center}
+\includegraphics[height=2.5in]{figure/data.jpg}
+\end{center}
+
+## What we get
+
+\begin{center}
+\includegraphics[height=1in]{figure/cleaning_data.jpg}
+\end{center}
+
+
+## What is tidyverse?
+
+* a list of many R packages, including ggplot2, dplyr, tidyr, readr and stringr etc.
+* a coherent system of packages for data manipulation, exploration and visualization
+* In statistics, we typically assume data is "tidy"
+    + data is in a tabular form
+    + 1 row == 1 observation
+    + 1 column == 1 variable
+* Parsing HTML/XML/JSON is easy; but putting it into a tidy form is typically not easy
+
+
+## Tidyverse process
+
+\begin{center}
+\includegraphics[height=2in]{figure/tidyverse1.png}
+\end{center}
+
+## What is a pipe operator in Tidyverse?
+
+* `f(x)` can be rewritten as `x %>% f`
+* `f(x, y)` can be rewritten as `x %>% f(y)`
+* suppose we want to compute the mean of the logarithm of x and round it to 1 decimal
+* x is a vector of numbers
+
+\scriptsize
+
+```{r}
+x <- c(0.109, 0.359, 0.63)
+# have to nest a lot of parentheses together
+round(mean(log(x)), 1)
+# pipe operator makes it cleaner!
+x %>% 
+  log() %>% 
+  mean() %>% 
+  round(1)
+```
+
+\normalsize
+
+## General procedure for web scraping
+
+* Inspect element in your browser
+* Tell R where to “look” on the page
+* Get the data in R with a few trial and error attempts
+* Manipulate the data into a tidy way if possible
+
+## `rvest` library
+
+* A R library which allows us to scrape data from web pages easily
+* Some basic functions in `rvest`:
+    + `html_nodes()`: identifies HTML wrappers
+    + `html_table()`: turns HTML tables into data frames
+    + `html_text()`: strips the HTML tags and extracts only the text
+    + `html_nodes(".class")`: calls node based on css class
+    + `html_nodes("#id")`: calls node based on `<div>` id
+    + `html_nodes(xpath="xpath")`: calls node based on xpath
+    + `html_attrs()`: identifies attributes (useful for debugging)
+    
+## NBA example
+
+* If we want to scrape the 2018-19 NBA schedule in October from basketball-reference.com (ignore the fact that you can download it directly)
+
+\begin{center}
+\includegraphics[height=2in]{figure/nba.png}
+\end{center}
+
+## NBA example
+
+* Open the [link](https://www.basketball-reference.com/leagues/NBA_2019_games.html) in your browser
+* Locate your table/content by clicking on "inspect element"
+
+\begin{center}
+\includegraphics[height=2in]{figure/inspect1.png}
+\end{center}
+
+
+## Motivating example
+* Find the line of HTML which corresponds to the table
+* Copy the CSS selectors and put it into `html_nodes()`
+
+\begin{center}
+\includegraphics[height=2in]{figure/inspect2.png}
+\end{center}
+
+
+## 1st attempt with `html_text()`
+* `html_text()` will extract the content, but it's super messy
+* we would like to perserve the tabular format as seen on the page
+
+\scriptsize
+```{r}
+url = "https://www.basketball-reference.com/leagues/NBA_2019_games.html"
+url %>% 
+  read_html() %>% 
+  html_nodes("#schedule") %>% 
+  html_text()
+```
+
+## 2nd attempt with `html_table()`
+
+* `html_table()` is able to parse a table better than `html_text()`
+* We often need to clean up some of the content after webscraping
+
+\scriptsize
+```{r}
+bball = url %>% 
+  read_html() %>% 
+  html_nodes("#schedule") %>% 
+  html_table() %>% 
+  .[[1]]
+
+names(bball) = c("date", "start_time", "visitor", "vistor_pts",      
+            "home", "home_pts", "col1", "col2", "attend", "Notes")
+bball <- bball %>% dplyr::select(-col1, -col2, -Notes)
+head(bball, 3)
+```
+
+## Analysis
+* Once we have the data ready, we can start our analysis
+* Eg. Which team has the highest home attendence in NBA?
+* `dplyr` package provides some very useful functions for performing data analysis tasks
+* Some basic functions in `dplyr`:
+    + `select()`:	select columns
+    + `filter()`:	filter rows
+    + `arrange()`:	re-order or arrange rows
+    + `mutate()`:	create new columns
+    + `summarise()`:	summarise values
+    + `group_by()`:	allows for group operations in the “split-apply-combine” concept
+
+## Analysis 
+\scriptsize
+
+```{r}
+attendAvg = bball %>% 
+  mutate(attend = as.numeric(str_replace_all(attend,",",""))) %>% 
+  group_by(home) %>% 
+  summarise(no_of_games = n(),
+            avg_attend = mean(attend)) %>% 
+  arrange(desc(avg_attend))
+attendAvg
+```
+* Can we visulize it?
+
+## Visulization in `ggplot2`
+\scriptsize
+```{r}
+attendAvg %>% ggplot(aes(x = reorder(home, avg_attend), y = avg_attend)) +
+geom_col() + coord_flip() + labs(x = NULL, y = "Average home attendence in NBA in October")
+```
+
+## Exercise
+
+* This [link](https://www.imdb.com/search/title?title_type=feature&release_date=2018-01-01,2018-12-31&sort=boxoffice_gross_us,desc) shows top 50 movies sorted by US Box Office revenue on IMDb website
+* Can you find the CSS selector of the rating of Avengers: Infinity War (2018)?
+* Can you extract that rating in R?
+
+\begin{center}
+\includegraphics[height=2in]{figure/IMDB1.png}
+\end{center}
+
+
+## Exercise - solution
+\scriptsize
+```{r}
+url2 = "https://www.imdb.com/search/title?title_type=feature&release_date=2018-01-01,2018-12-31&sort=boxoffice_gross_us,desc"
+url2 %>% 
+  read_html() %>% 
+  html_nodes("div.lister-item:nth-child(2) > div:nth-child(3) 
+             > div:nth-child(3) > div:nth-child(1)") %>% 
+  html_text() %>% 
+  as.numeric()
+```
+
+## IMDB example
+
+* Question: Does a high rated movie correspond to a high revenue? (Note: this is not a random sampling)
+* Let's say, we want to scrape a list of variables including title, rating, gross revenue and movie length of these 50 movies 
+* Sometimes, we cannot scrape all the info/variables at once
+
+\scriptsize
+```{r}
+url2 %>% 
+  read_html() %>% 
+  html_nodes("div.lister-item:nth-child(1) > div:nth-child(3)") %>% 
+  html_text()
+```
+```{r,error = T}
+url2 %>% 
+  read_html() %>% 
+  html_nodes("div.lister-item:nth-child(1) > div:nth-child(3)") %>% 
+  html_table()
+```
+
+## IMDB example
+
+* If our target is not formatted in a HTML table form nicely, we have to scrape each part separately
+* Eg. let's scrape the ranking, rating and title of the movie first
+* Ranking of these 50 movies are defined in the same class
+
+\begin{center}
+\includegraphics[height=2in]{figure/IMDB2.png}
+\end{center}
+
+## IMDB example
+
+* `.text-primary` will return the ranking of all 50 movies
+* Similarly, we can get rating and title by locating their class respectively
+
+\scriptsize
+```{r}
+ranking = url2 %>% read_html() %>% html_nodes(".text-primary") %>% 
+  html_text()
+
+rating = url2 %>% read_html() %>% html_nodes('.ratings-imdb-rating strong') %>% 
+  html_text()
+
+title = url2 %>% read_html() %>% html_nodes('.lister-item-header a') %>% 
+  html_text()
+```
+
+## Exercise
+* Scrape revenue and movie length from the page
+
+\begin{center}
+\includegraphics[height=2in]{figure/IMDB3.png}
+\end{center}
+
+## Exercise - solution
+\scriptsize
+```{r}
+revenue = url2 %>% read_html() %>% html_nodes('.ghost~ .text-muted+ span') %>% 
+  html_text()
+
+# movie length
+runtime = url2 %>% read_html() %>% html_nodes('.text-muted .runtime') %>% 
+  html_text() 
+```
+
+## IMDB example
+
+* Putting all of them together into a dataframe
+* Some numeric variables have special characters in it, such as ".","min","$","M".
+* We can manipulate strings using `stringr` package
+    + `str_c`: combine two strings
+    + `str_sub`: extract parts of a string 
+    + `str_to_lower`: change the text to lower case
+    + `str_to_upper`: change the text to upper case
+    + `str_detect`: check if a character vector matches a pattern
+    + `str_replace`: replace matches with new strings
+    + `str_split`: split a string up into pieces.
+    + `str_remove`: remove a certain pattern of strings
+
+## IMDB example - Cleaning Data
+\scriptsize
+```{r}
+movie_df = data.frame(ranking = ranking, title = title, rating = rating,
+                      runtime = runtime, revenue = revenue, stringsAsFactors = F)
+movie_df = movie_df %>% mutate(
+                    ranking = str_remove_all(ranking,"\\.") %>% as.numeric(),
+                    rating = as.numeric(rating),
+                    runtime = str_remove_all(runtime," min") %>% as.numeric(),
+                    revenue = str_remove_all(revenue, "M"),
+                    revenue = str_replace_all(revenue, "\\$",""),
+                    revenue = as.numeric(revenue))
+```
+
+
+## IMDB example - Visualization
+* Dashed red line indicates the average rating and revenue respectively
+
+\scriptsize
+```{r}
+p = movie_df %>% ggplot( aes(x=rating, y=revenue)) + 
+  geom_point() + theme_bw() + xlim(c(3,10)) + ylim(c(-100,1000)) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_hline(yintercept = mean(movie_df$revenue), 
+             size = 0.7, color = "red", alpha=0.5, linetype="dashed") +
+  geom_vline(xintercept = mean(movie_df$rating), 
+             size = 0.7, color = "red", alpha=0.5, linetype="dashed") + 
+ geom_text_repel(movie_df %>% filter(revenue < 320, rating > 8),
+                 mapping = aes(x=rating, y=revenue, label = title),
+                 size = 3.5,
+                 nudge_x = 1.5,
+                 direction    = "y",
+                 segment.size = 0.8) +
+ geom_text_repel(movie_df %>% filter(rating < 5 | revenue > 320), 
+                 mapping = aes(x=rating, y=revenue, label = title), 
+                 size = 3.5,
+                 nudge_x = -0.85,
+                 direction    = "y",
+                 segment.size = 0.8) 
+```
+## IMDB example
+\scriptsize
+```{r,echo = T}
+p
+```
+
+## IMDB example - Modelling
+
+* We can build a simple linear regression model (Be aware that this is not a random sampling)
+
+\scriptsize
+```{r,echo = T}
+summary(lm(revenue ~ rating, data = movie_df))
+```
+
+## IMDB example - Visualize the linear fit
+
+\scriptsize
+```{r}
+ggplot(movie_df, aes(x = rating, y = revenue)) + 
+  geom_point() + stat_smooth(method = "lm", col = "red")
+```
+
+## Conclusion
+* Covered a few libraries, `rvest`, `dplyr`, `stringr`, `ggplot2`
+* Identify the appropriate CSS selector is the key
+* Data science workflow:
+
+\begin{center}
+\includegraphics[height=1.5in]{figure/data_science_workflow.png}
+\end{center}
+
+
